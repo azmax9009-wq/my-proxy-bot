@@ -46,46 +46,7 @@ async def check_host(host, port):
         return True
     except: return False
 
-# --- АДМИН ПАНЕЛЬ ---
-@dp.message(Command("admin"))
-async def admin_menu(message: types.Message):
-    if message.from_user.id != USER_ID: return
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="📊 Список ID (txt)", callback_data="admin_get_users")],
-        [InlineKeyboardButton(text="🔄 Обновить базу сейчас", callback_data="admin_force_update")]
-    ])
-    
-    await message.answer(
-        f"👑 **ПАНЕЛЬ АДМИНИСТРАТОРА**\n\n"
-        f"👥 Юзеров в базе: **{len(get_all_users())}**\n"
-        f"🕒 Последняя проверка: `{last_update_time}`\n"
-        f"🔗 [Твой GitHub]({PROXY_URL})",
-        reply_markup=kb, parse_mode="Markdown", disable_web_page_preview=True
-    )
-
-@dp.callback_query(F.data.startswith("admin_"))
-async def admin_callbacks(callback: CallbackQuery):
-    if callback.from_user.id != USER_ID: return
-    
-    if callback.data == "admin_broadcast":
-        await callback.message.answer("Чтобы сделать рассылку, используй команду:\n\n`/broadcast Твой текст`", parse_mode="Markdown")
-    
-    elif callback.data == "admin_get_users":
-        if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, "rb") as f:
-                file_content = f.read()
-            await callback.message.answer_document(BufferedInputFile(file_content, filename="users.txt"), caption="📊 Полный список пользователей")
-    
-    elif callback.data == "admin_force_update":
-        await callback.message.answer("🔄 Проверяю GitHub...")
-        await check_github_now()
-        await callback.message.answer(f"✅ Готово! Статус: {last_update_time}")
-    
-    await callback.answer()
-
-# --- ОСНОВНЫЕ КНОПКИ ---
+# --- ОБРАБОТЧИКИ КНОПОК ---
 def get_kb():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🚀 ПОЛУЧИТЬ НАСТРОЙКИ")],
@@ -96,26 +57,10 @@ def get_kb():
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     save_user(message.from_user.id)
-    await message.answer("✅ **Бот запущен и готов к работе!**", reply_markup=get_kb(), parse_mode="Markdown")
-
-@dp.message(F.text == "📊 Статус и Пинг")
-async def status_handler(message: types.Message):
-    await bot.send_chat_action(message.chat.id, "typing")
-    async with aiohttp.ClientSession() as session:
-        async with session.get(PROXY_URL) as r:
-            content = await r.text() if r.status == 200 else ""
-    
-    hosts = re.findall(r'@([\w\.-]+):(\d+)', content)
-    tasks = [check_host(h, p) for h, p in hosts] # Проверяем ВСЕ
-    results = await asyncio.gather(*tasks)
-    active = results.count(True)
-    
     await message.answer(
-        f"🖥 **МОНИТОРИНГ**\n\n"
-        f"📡 Доступно: `{active} из {len(hosts)}` серверов\n"
-        f"📶 Стабильность: **{int((active/len(hosts))*100) if hosts else 0}%**\n"
-        f"🕒 Данные от: `{last_update_time}`", 
-        parse_mode="Markdown"
+        "👋 **Привет! Я бот для получения рабочих VPN-настроек.**\n\n"
+        "Жми кнопку ниже, чтобы получить файл или прочитать инструкцию.",
+        reply_markup=get_kb(), parse_mode="Markdown"
     )
 
 @dp.message(F.text == "🚀 ПОЛУЧИТЬ НАСТРОЙКИ")
@@ -128,23 +73,90 @@ async def send_config(message: types.Message):
                 content = await r.text()
                 total = len(re.findall(r'vless://', content))
                 caption = (
-                    f"✅ **Настройки готовы!**\n"
+                    f"✅ **Ваш файл готов!**\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🌍 Всего узлов: **{total}**\n"
-                    f"🕒 Обновлено: {last_update_time}\n"
-                    f"━━━━━━━━━━━━━━━━━━"
+                    f"🌍 Серверов в списке: **{total}**\n"
+                    f"🕒 Актуально на: {last_update_time}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"Скопируйте всё содержимое файла и вставьте в приложение."
                 )
                 await bot.send_document(message.chat.id, BufferedInputFile(content.encode(), filename="proxies.txt"), caption=caption, parse_mode="Markdown")
 
+@dp.message(F.text == "📊 Статус и Пинг")
+async def status_handler(message: types.Message):
+    await bot.send_chat_action(message.chat.id, "typing")
+    async with aiohttp.ClientSession() as session:
+        async with session.get(PROXY_URL) as r:
+            content = await r.text() if r.status == 200 else ""
+    
+    hosts = re.findall(r'@([\w\.-]+):(\d+)', content)
+    tasks = [check_host(h, p) for h, p in hosts]
+    results = await asyncio.gather(*tasks)
+    active = results.count(True)
+    
+    await message.answer(
+        f"🖥 **МОНИТОРИНГ**\n\n"
+        f"📡 Живых узлов: `{active} из {len(hosts)}`\n"
+        f"📈 Стабильность базы: **{int((active/len(hosts))*100) if hosts else 0}%**\n"
+        f"🕒 Последняя синхронизация: `{last_update_time}`", 
+        parse_mode="Markdown"
+    )
+
 @dp.message(F.text == "⚡ Скорость")
-async def speed(message: types.Message):
-    await message.answer("🚀 Проверь скорость тут: [Fast.com](https://fast.com/ru/)", parse_mode="Markdown")
+async def speed_test_btn(message: types.Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Начать тест скорости", url="https://fast.com/ru/")]
+    ])
+    await message.answer("📏 Нажмите кнопку ниже, чтобы проверить скорость вашего VPN соединения:", reply_markup=kb)
 
 @dp.message(F.text == "📖 Инструкция")
-async def instr(message: types.Message):
-    await message.answer("1. Нажми 'Получить настройки'\n2. Скопируй текст из файла\n3. В Hiddify: + -> Из буфера")
+async def instruction(message: types.Message):
+    text = (
+        "📖 **ИНСТРУКЦИЯ ПО ПОДКЛЮЧЕНИЮ**\n\n"
+        "1️⃣ **Скачайте приложение Hiddify:**\n"
+        "• [Android (Play Store)](https://play.google.com/store/apps/details?id=app.hiddify.com)\n"
+        "• [iOS (App Store)](https://apps.apple.com/us/app/hiddify/id6473760000)\n"
+        "• [Windows / PC](https://github.com/hiddify/hiddify-next/releases/latest/download/Hiddify-Windows-Setup-x64.exe)\n\n"
+        "2️⃣ **Получите настройки:**\n"
+        "Нажмите кнопку '🚀 ПОЛУЧИТЬ НАСТРОЙКИ' и скачайте файл.\n\n"
+        "3️⃣ **Импортируйте:**\n"
+        "Откройте файл, скопируйте весь текст. В приложении Hiddify нажмите кнопку **'+' (Новый профиль)** -> **'Из буфера обмена'**.\n\n"
+        "4️⃣ **Подключитесь:**\n"
+        "Нажмите на центральную кнопку подключения. Готово!"
+    )
+    await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
 
-# --- СИСТЕМНЫЕ ФУНКЦИИ ---
+# --- АДМИНКА ---
+@dp.message(Command("admin"))
+async def admin_menu(message: types.Message):
+    if message.from_user.id != USER_ID: return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="📊 Скачать ID", callback_data="admin_get_users")]
+    ])
+    await message.answer(f"👑 Админка\nЮзеров: {len(get_all_users())}", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("admin_"))
+async def admin_cb(callback: CallbackQuery):
+    if callback.from_user.id != USER_ID: return
+    if callback.data == "admin_broadcast":
+        await callback.message.answer("Пиши: `/broadcast Твой текст`", parse_mode="Markdown")
+    elif callback.data == "admin_get_users":
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, "rb") as f:
+                await callback.message.answer_document(BufferedInputFile(f.read(), filename="users.txt"))
+    await callback.answer()
+
+@dp.message(Command("broadcast"))
+async def broadcast_cmd(message: types.Message):
+    if message.from_user.id != USER_ID: return
+    text = message.text.replace("/broadcast", "").strip()
+    if not text: return
+    for uid in get_all_users():
+        try: await bot.send_message(uid, f"📢 **СООБЩЕНИЕ:**\n\n{text}"); await asyncio.sleep(0.05)
+        except: pass
+
+# --- СИСТЕМНЫЙ ЦИКЛ ---
 async def check_github_now():
     global last_hash, last_update_time
     try:
@@ -158,34 +170,23 @@ async def check_github_now():
                         last_update_time = now.strftime("%H:%M:%S (%d.%m.%Y)")
                         if last_hash != "start_node":
                             for uid in get_all_users():
-                                try: await bot.send_message(uid, "🔔 Настройки на GitHub обновились! Скачайте свежий файл."); await asyncio.sleep(0.05)
+                                try: await bot.send_message(uid, "🔔 Настройки обновлены!"); await asyncio.sleep(0.05)
                                 except: pass
                         last_hash = h
     except: pass
-
-@dp.message(Command("broadcast"))
-async def broadcast(message: types.Message):
-    if message.from_user.id != USER_ID: return
-    text = message.text.replace("/broadcast", "").strip()
-    if not text: return
-    for uid in get_all_users():
-        try: await bot.send_message(uid, f"📢 **СООБЩЕНИЕ:**\n\n{text}"); await asyncio.sleep(0.05)
-        except: pass
 
 async def check_loop():
     while True:
         await check_github_now()
         await asyncio.sleep(60)
 
-async def handle(request): return web.Response(text="OK")
+async def handle(request): return web.Response(text="Bot Active")
 
 async def main():
     app = web.Application()
     app.router.add_get('/', handle)
     runner = web.AppRunner(app); await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
-    await web.TCPSite(runner, '0.0.0.0', port).start()
-    
+    await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000))).start()
     asyncio.create_task(check_loop())
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
