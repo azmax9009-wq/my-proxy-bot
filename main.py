@@ -31,9 +31,10 @@ def get_all_users():
 
 def save_user(user_id):
     u_id = str(user_id)
-    users = []
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r") as f: users = f.read().splitlines()
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "w") as f: f.write(u_id + "\n")
+        return
+    with open(USERS_FILE, "r") as f: users = f.read().splitlines()
     if u_id not in users:
         with open(USERS_FILE, "a") as f: f.write(u_id + "\n")
 
@@ -46,7 +47,7 @@ async def check_host(host, port):
         return True
     except: return False
 
-# --- ОБРАБОТЧИКИ КНОПОК ---
+# --- КЛАВИАТУРА ГЛАВНОГО МЕНЮ ---
 def get_kb():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🚀 ПОЛУЧИТЬ НАСТРОЙКИ")],
@@ -54,13 +55,52 @@ def get_kb():
         [KeyboardButton(text="⚡ Скорость"), KeyboardButton(text="📖 Инструкция")]
     ], resize_keyboard=True)
 
+# --- ОБРАБОТЧИКИ ---
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     save_user(message.from_user.id)
     await message.answer(
-        "👋 **Привет! Я бот для получения рабочих VPN-настроек.**\n\n"
-        "Жми кнопку ниже, чтобы получить файл или прочитать инструкцию.",
+        "👋 **Ваш персональный VPN-центр готов!**\n\n"
+        "Используйте меню ниже, чтобы скачать настройки или узнать, как ими пользоваться.",
         reply_markup=get_kb(), parse_mode="Markdown"
+    )
+
+@dp.message(F.text == "📖 Инструкция")
+async def instruction(message: types.Message):
+    text = (
+        "📖 **КАК ПОДКЛЮЧИТЬ VPN?**\n\n"
+        "**Шаг 1: Установите Hiddify**\n"
+        "Выберите вашу платформу и установите официальное приложение по кнопкам ниже. 👇\n\n"
+        "**Шаг 2: Получите настройки**\n"
+        "Нажмите кнопку **'🚀 ПОЛУЧИТЬ НАСТРОЙКИ'** в главном меню и скачайте файл.\n\n"
+        "**Шаг 3: Импорт в приложение**\n"
+        "• Откройте скачанный файл и **скопируйте весь текст**.\n"
+        "• В приложении Hiddify нажмите **'+' (Новый профиль)**.\n"
+        "• Выберите **'Из буфера обмена'**.\n\n"
+        "**Шаг 4: Поехали!**\n"
+        "Нажмите на большую круглую кнопку подключения. Если всё сделано верно — интернет станет свободным! ✅"
+    )
+    
+    # Кнопки для скачивания прямо под инструкцией
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 Android (Play Store)", url="https://play.google.com/store/apps/details?id=app.hiddify.com")],
+        [InlineKeyboardButton(text="🍎 iPhone (App Store)", url="https://apps.apple.com/us/app/hiddify-next/id6473777529")],
+        [InlineKeyboardButton(text="💻 Windows (PC)", url="https://github.com/hiddify/hiddify-next/releases/latest/download/Hiddify-Windows-Setup-x64.exe")]
+    ])
+    
+    await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+
+@dp.message(F.text == "⚡ Скорость")
+async def speed_test(message: types.Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Начать Speedtest", url="https://fast.com/ru/")]
+    ])
+    await message.answer(
+        "📏 **Проверка скорости**\n\n"
+        "Нажмите на кнопку ниже, чтобы замерить скорость интернета через сервис Fast.com (от Netflix).\n\n"
+        "*Совет:* замеряйте до и после включения VPN, чтобы увидеть разницу.",
+        reply_markup=kb, parse_mode="Markdown"
     )
 
 @dp.message(F.text == "🚀 ПОЛУЧИТЬ НАСТРОЙКИ")
@@ -73,14 +113,19 @@ async def send_config(message: types.Message):
                 content = await r.text()
                 total = len(re.findall(r'vless://', content))
                 caption = (
-                    f"✅ **Ваш файл готов!**\n"
+                    f"✅ **Файл конфигурации сформирован!**\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🌍 Серверов в списке: **{total}**\n"
-                    f"🕒 Актуально на: {last_update_time}\n"
+                    f"🌍 Всего узлов: **{total}**\n"
+                    f"🕒 Обновлено: {last_update_time}\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"Скопируйте всё содержимое файла и вставьте в приложение."
+                    f"👇 *Инструкция внутри кнопки 'Инструкция'* 👇"
                 )
-                await bot.send_document(message.chat.id, BufferedInputFile(content.encode(), filename="proxies.txt"), caption=caption, parse_mode="Markdown")
+                await bot.send_document(
+                    message.chat.id, 
+                    BufferedInputFile(content.encode(), filename="proxies.txt"), 
+                    caption=caption, 
+                    parse_mode="Markdown"
+                )
 
 @dp.message(F.text == "📊 Статус и Пинг")
 async def status_handler(message: types.Message):
@@ -95,68 +140,45 @@ async def status_handler(message: types.Message):
     active = results.count(True)
     
     await message.answer(
-        f"🖥 **МОНИТОРИНГ**\n\n"
-        f"📡 Живых узлов: `{active} из {len(hosts)}`\n"
-        f"📈 Стабильность базы: **{int((active/len(hosts))*100) if hosts else 0}%**\n"
-        f"🕒 Последняя синхронизация: `{last_update_time}`", 
+        f"🖥 **МОНИТОРИНГ СЕРВЕРОВ**\n\n"
+        f"📡 Доступно: `{active} / {len(hosts)}` узлов\n"
+        f"🟢 Статус: **Сеть работает штатно**\n"
+        f"👥 Пользователей: **{len(get_all_users())}**\n"
+        f"🕒 Данные на: `{last_update_time}`", 
         parse_mode="Markdown"
     )
-
-@dp.message(F.text == "⚡ Скорость")
-async def speed_test_btn(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Начать тест скорости", url="https://fast.com/ru/")]
-    ])
-    await message.answer("📏 Нажмите кнопку ниже, чтобы проверить скорость вашего VPN соединения:", reply_markup=kb)
-
-@dp.message(F.text == "📖 Инструкция")
-async def instruction(message: types.Message):
-    text = (
-        "📖 **ИНСТРУКЦИЯ ПО ПОДКЛЮЧЕНИЮ**\n\n"
-        "1️⃣ **Скачайте приложение Hiddify:**\n"
-        "• [Android (Play Store)](https://play.google.com/store/apps/details?id=app.hiddify.com)\n"
-        "• [iOS (App Store)](https://apps.apple.com/us/app/hiddify/id6473760000)\n"
-        "• [Windows / PC](https://github.com/hiddify/hiddify-next/releases/latest/download/Hiddify-Windows-Setup-x64.exe)\n\n"
-        "2️⃣ **Получите настройки:**\n"
-        "Нажмите кнопку '🚀 ПОЛУЧИТЬ НАСТРОЙКИ' и скачайте файл.\n\n"
-        "3️⃣ **Импортируйте:**\n"
-        "Откройте файл, скопируйте весь текст. В приложении Hiddify нажмите кнопку **'+' (Новый профиль)** -> **'Из буфера обмена'**.\n\n"
-        "4️⃣ **Подключитесь:**\n"
-        "Нажмите на центральную кнопку подключения. Готово!"
-    )
-    await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
 
 # --- АДМИНКА ---
 @dp.message(Command("admin"))
 async def admin_menu(message: types.Message):
     if message.from_user.id != USER_ID: return
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="📊 Скачать ID", callback_data="admin_get_users")]
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="adm_br"), 
+         InlineKeyboardButton(text="📊 База ID", callback_data="adm_ids")]
     ])
-    await message.answer(f"👑 Админка\nЮзеров: {len(get_all_users())}", reply_markup=kb)
+    await message.answer(f"👑 **Админ-центр**\nВсего юзеров: {len(get_all_users())}", reply_markup=kb)
 
-@dp.callback_query(F.data.startswith("admin_"))
-async def admin_cb(callback: CallbackQuery):
-    if callback.from_user.id != USER_ID: return
-    if callback.data == "admin_broadcast":
-        await callback.message.answer("Пиши: `/broadcast Твой текст`", parse_mode="Markdown")
-    elif callback.data == "admin_get_users":
+@dp.callback_query(F.data.startswith("adm_"))
+async def admin_callback(cb: CallbackQuery):
+    if cb.from_user.id != USER_ID: return
+    if cb.data == "adm_br":
+        await cb.message.answer("Используй: `/broadcast Текст`")
+    elif cb.data == "adm_ids":
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, "rb") as f:
-                await callback.message.answer_document(BufferedInputFile(f.read(), filename="users.txt"))
-    await callback.answer()
+                await cb.message.answer_document(BufferedInputFile(f.read(), filename="users.txt"))
+    await cb.answer()
 
 @dp.message(Command("broadcast"))
-async def broadcast_cmd(message: types.Message):
+async def broadcast_handler(message: types.Message):
     if message.from_user.id != USER_ID: return
     text = message.text.replace("/broadcast", "").strip()
     if not text: return
     for uid in get_all_users():
-        try: await bot.send_message(uid, f"📢 **СООБЩЕНИЕ:**\n\n{text}"); await asyncio.sleep(0.05)
+        try: await bot.send_message(uid, f"📢 **ВАЖНОЕ УВЕДОМЛЕНИЕ:**\n\n{text}"); await asyncio.sleep(0.05)
         except: pass
 
-# --- СИСТЕМНЫЙ ЦИКЛ ---
+# --- СИСТЕМНЫЕ ФУНКЦИИ ---
 async def check_github_now():
     global last_hash, last_update_time
     try:
@@ -170,7 +192,7 @@ async def check_github_now():
                         last_update_time = now.strftime("%H:%M:%S (%d.%m.%Y)")
                         if last_hash != "start_node":
                             for uid in get_all_users():
-                                try: await bot.send_message(uid, "🔔 Настройки обновлены!"); await asyncio.sleep(0.05)
+                                try: await bot.send_message(uid, "🔔 **Обновление!** Добавлены новые серверы. Скачайте свежий файл."); await asyncio.sleep(0.05)
                                 except: pass
                         last_hash = h
     except: pass
@@ -180,7 +202,7 @@ async def check_loop():
         await check_github_now()
         await asyncio.sleep(60)
 
-async def handle(request): return web.Response(text="Bot Active")
+async def handle(request): return web.Response(text="Bot OK")
 
 async def main():
     app = web.Application()
