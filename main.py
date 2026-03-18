@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 API_TOKEN = '8459395402:AAEBWV85J1rUMxu825hvnHzd1SHtaDG8xoc'
 USER_ID = 8208699361 
 PROXY_URL = 'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt'
-CHECK_INTERVAL = 600 # Проверка каждые 10 минут
+CHECK_INTERVAL = 60 # Проверка каждые 10 минут
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
