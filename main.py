@@ -25,7 +25,6 @@ last_update_time = "Ожидание..."
 
 # --- УТИЛИТЫ ---
 def get_all_users():
-    """Получает список всех ID из файла"""
     if not os.path.exists(USERS_FILE): return [USER_ID]
     try:
         with open(USERS_FILE, "r") as f: 
@@ -33,7 +32,6 @@ def get_all_users():
     except: return [USER_ID]
 
 def save_user(user_id):
-    """Сохраняет нового пользователя в базу"""
     u_id = str(user_id)
     users = []
     if os.path.exists(USERS_FILE):
@@ -54,10 +52,36 @@ def get_kb():
 async def cmd_start(message: types.Message):
     save_user(message.from_user.id)
     await message.answer(
-        "👋 **Ваш персональный VPN-центр готов!**\n\n"
-        "Я автоматически уведомлю вас, когда появятся новые серверы.",
+        "👋 **Добро пожаловать в персональный VPN-центр!**\n\n"
+        "Я помогу вам настроить свободный интернет через приложение **Happ**.\n"
+        "Используйте кнопки меню ниже для работы.",
         reply_markup=get_kb(), parse_mode="Markdown"
     )
+
+@dp.message(F.text == "📖 Инструкция")
+async def instruction(message: types.Message):
+    text = (
+        "📖 **ИНСТРУКЦИЯ ДЛЯ ПРИЛОЖЕНИЯ HAPP**\n\n"
+        "**1️⃣ Установите Happ**\n"
+        "Скачайте официальное приложение для вашего телефона по ссылкам ниже.\n\n"
+        "**2️⃣ Скачайте файл с настройками**\n"
+        "Нажмите кнопку **'🚀 ПОЛУЧИТЬ НАСТРОЙКИ'** в меню бота и откройте файл.\n\n"
+        "**3️⃣ Импорт в Happ**\n"
+        "• Скопируйте весь текст из файла.\n"
+        "• Откройте приложение **Happ**.\n"
+        "• Нажмите иконку **'+' (Add)** в верхнем углу.\n"
+        "• Выберите **'Add from Clipboard'** (Добавить из буфера).\n\n"
+        "**4️⃣ Включите VPN**\n"
+        "Нажмите на кнопку подключения (обычно это кнопка в центре или иконка щита). Готово! 🌍"
+    )
+    
+    # Кнопки для скачивания Happ
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 Android (Google Play)", url="https://play.google.com/store/apps/details?id=com.happ.android")],
+        [InlineKeyboardButton(text="🍎 iPhone (App Store)", url="https://apps.apple.com/us/app/happ-proxy/id6477543881")]
+    ])
+    
+    await message.answer(text, reply_markup=kb, parse_mode="Markdown")
 
 @dp.message(F.text == "🚀 ПОЛУЧИТЬ НАСТРОЙКИ")
 async def send_config(message: types.Message):
@@ -67,24 +91,34 @@ async def send_config(message: types.Message):
             if r.status == 200:
                 content = await r.text()
                 total = len(re.findall(r'vless://', content))
-                caption = f"✅ **Конфигурация готова!**\n🌍 Узлов: {total}\n🕒 Обновлено: {last_update_time}"
+                caption = (
+                    f"✅ **Конфигурация для Happ готова!**\n\n"
+                    f"🌍 Серверов: **{total}**\n"
+                    f"🕒 Обновлено: {last_update_time}\n\n"
+                    f"👇 *Инструкция по настройке — кнопка '📖 Инструкция'*"
+                )
                 await bot.send_document(
                     message.chat.id, 
-                    BufferedInputFile(content.encode(), filename="proxies.txt"), 
+                    BufferedInputFile(content.encode(), filename="Happ_Configs.txt"), 
                     caption=caption, parse_mode="Markdown"
                 )
 
-@dp.message(F.text == "📖 Инструкция")
-async def instruction(message: types.Message):
-    await message.answer("📖 **Инструкция:** Установите Hiddify, скопируйте текст из файла и импортируйте через '+'.", parse_mode="Markdown")
-
 @dp.message(F.text == "📊 Статус и Пинг")
 async def status_handler(message: types.Message):
-    await message.answer(f"🟢 Сервис работает\n🕒 Последние данные: {last_update_time}", parse_mode="Markdown")
+    await message.answer(
+        f"🖥 **МОНИТОРИНГ**\n\n"
+        f"🟢 Статус: **В сети**\n"
+        f"👥 Пользователей: **{len(get_all_users())}**\n"
+        f"🕒 Данные от: `{last_update_time}`", 
+        parse_mode="Markdown"
+    )
 
 @dp.message(F.text == "⚡ Скорость")
 async def speed_test(message: types.Message):
-    await message.answer("📏 Проверить скорость можно на [Fast.com](https://fast.com/ru/)", parse_mode="Markdown")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Запустить тест", url="https://fast.com/ru/")]
+    ])
+    await message.answer("📏 Нажмите кнопку ниже, чтобы проверить скорость вашего интернета.", reply_markup=kb, parse_mode="Markdown")
 
 # --- СИСТЕМНЫЕ ЦИКЛЫ ---
 async def check_github_loop():
@@ -101,34 +135,39 @@ async def check_github_loop():
                             last_update_time = now.strftime("%H:%M:%S (%d.%m.%Y)")
                             if last_hash != "start_node":
                                 for uid in get_all_users():
-                                    try: await bot.send_message(uid, f"🔔 **ОБНОВЛЕНИЕ!**\nНа GitHub появились новые серверы.\nОбновлено в: {last_update_time}")
+                                    try: 
+                                        await bot.send_message(
+                                            uid, 
+                                            f"🔔 **ОБНОВЛЕНИЕ СЕРВЕРОВ!**\n\n"
+                                            f"Добавлены новые прокси для Happ.\n"
+                                            f"Нажмите '🚀 ПОЛУЧИТЬ НАСТРОЙКИ', чтобы скачать новый файл."
+                                        )
                                     except: pass
                             last_hash = new_hash
         except: pass
         await asyncio.sleep(60)
 
-async def handle(request): return web.Response(text="OK")
+async def handle(request): return web.Response(text="Happ Bot Active")
 
 async def main():
-    # Настройка Web-сервера для Render
     app = web.Application()
     app.router.add_get('/', handle)
     runner = web.AppRunner(app); await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000))).start()
     
-    # Сброс старых обновлений
     await bot.delete_webhook(drop_pending_updates=True)
     
-    # МАССОВАЯ РАССЫЛКА ПРИ ЗАПУСКЕ
     all_users = get_all_users()
     now = datetime.now(pytz.timezone('Europe/Moscow')).strftime("%H:%M")
     
+    # Массовая рассылка при запуске
     for uid in all_users:
         try:
             await bot.send_message(
                 uid, 
-                f"✅ **Бот обновлен и запущен!** ({now} МСК)\n\n"
-                "Все системы работают штатно. Нажмите кнопку ниже, чтобы получить свежий конфиг.",
+                f"✅ **Бот Happ VPN обновлен!**\n\n"
+                f"🕒 Запуск: {now} (МСК)\n"
+                f"Все системы работают штатно. Ждем обновлений на GitHub!",
                 reply_markup=get_kb(), parse_mode="Markdown"
             )
             await asyncio.sleep(0.05)
