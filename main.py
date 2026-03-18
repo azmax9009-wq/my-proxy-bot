@@ -2,7 +2,7 @@ import asyncio
 import aiohttp
 import hashlib
 import os
-import random
+import time
 from datetime import datetime
 import pytz
 from aiogram import Bot, Dispatcher, types, F
@@ -23,162 +23,138 @@ dp = Dispatcher()
 last_hash = "start_node"
 last_update_time = "Ожидание..."
 
-# --- ПОЛЕЗНЫЕ СОВЕТЫ ---
-TIPS = [
-    "💡 Совет: Если VPN не подключается, попробуйте перезагрузить авиарежим.",
-    "💡 Совет: Приложение Hiddify лучше всего работает на последней версии Android/iOS.",
-    "💡 Совет: Если скорость упала, проверьте, не включены ли другие VPN-сервисы.",
-    "💡 Совет: Файл настроек обновляется автоматически, следите за уведомлениями!",
-    "💡 Совет: Если кнопка в Hiddify долго крутится, попробуйте нажать её еще раз."
-]
-
-# --- ФУНКЦИИ СПИСКА ---
-def save_user(user_id):
-    user_id_str = str(user_id)
+# --- ФУНКЦИИ ПРОВЕРКИ ---
+async def check_link_latency():
+    """Проверяет, как быстро отвечает ссылка с прокси"""
+    start = time.time()
     try:
-        users = []
-        if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, "r") as fr: users = fr.read().splitlines()
-        if user_id_str not in users:
-            with open(USERS_FILE, "a") as f: f.write(user_id_str + "\n")
-            return True
+        async with aiohttp.ClientSession() as session:
+            async with session.get(PROXY_URL, timeout=5) as resp:
+                if resp.status == 200:
+                    latency = int((time.time() - start) * 1000)
+                    if latency < 300: return f"🟢 Отлично ({latency}ms)"
+                    if latency < 800: return f"🟡 Средне ({latency}ms)"
+                    return f"🔴 Медленно ({latency}ms)"
     except: pass
-    return False
+    return "⚪ Офлайн"
 
 def get_all_users():
     if not os.path.exists(USERS_FILE): return [USER_ID]
-    try:
-        with open(USERS_FILE, "r") as f: 
-            return [int(l.strip()) for l in f if l.strip().isdigit()]
-    except: return [USER_ID]
+    with open(USERS_FILE, "r") as f: return [int(l.strip()) for l in f if l.strip().isdigit()]
+
+def save_user(user_id):
+    u_id = str(user_id)
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "w") as f: f.write(u_id + "\n")
+        return
+    with open(USERS_FILE, "r") as f: users = f.read().splitlines()
+    if u_id not in users:
+        with open(USERS_FILE, "a") as f: f.write(u_id + "\n")
 
 # --- КЛАВИАТУРА ---
 def get_main_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🚀 ПОЛУЧИТЬ НАСТРОЙКИ")],
         [KeyboardButton(text="📖 Инструкция")],
-        [KeyboardButton(text="📊 Статус системы"), KeyboardButton(text="⚡ Скорость")]
+        [KeyboardButton(text="📊 Статус и Пинг"), KeyboardButton(text="⚡ Скорость")]
     ], resize_keyboard=True)
-
-async def get_proxies():
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(PROXY_URL, timeout=15) as resp:
-                if resp.status == 200: return (await resp.text()).strip()
-        except: pass
-    return None
 
 # --- ОБРАБОТЧИКИ ---
 
 @dp.message(Command("start"))
-async def send_welcome(message: types.Message):
+async def start(message: types.Message):
     save_user(message.from_user.id)
-    await message.answer(
-        "👋 **Добро пожаловать в сервис!**\n\n"
-        "Я помогу вам настроить свободный доступ в интернет.\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "Нажмите кнопку ниже, чтобы начать.",
-        reply_markup=get_main_keyboard(), parse_mode="Markdown"
-    )
+    await message.answer("👋 **Бот готов к работе!**\nИспользуйте меню для получения прокси.", reply_markup=get_main_keyboard())
 
-@dp.message(Command("broadcast"))
-async def broadcast_command(message: types.Message):
-    if message.from_user.id != USER_ID: return 
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2: return await message.answer("❌ Формат: `/broadcast Текст`")
-    text = parts[1]
-    users = get_all_users()
-    sent = 0
-    status = await message.answer(f"⏳ Рассылаю на {len(users)} чел...")
-    for uid in users:
-        try:
-            await bot.send_message(uid, f"📢 **СООБЩЕНИЕ:**\n\n{text}", parse_mode="Markdown")
-            sent += 1
-            await asyncio.sleep(0.05)
-        except: continue
-    await status.edit_text(f"✅ Готово! Доставлено: {sent} чел.")
-
-@dp.message(Command("count"))
-async def count_users(message: types.Message):
-    if message.from_user.id != USER_ID: return
-    count = len(get_all_users())
-    await message.answer(f"👥 Всего пользователей в базе: **{count}**", parse_mode="Markdown")
-
-@dp.message(F.text == "📖 Инструкция")
-async def send_help(message: types.Message):
-    help_text = (
-        "📖 **ИНСТРУКЦИЯ ПО НАСТРОЙКЕ**\n\n"
-        "1. Установите **Hiddify** по ссылкам ниже.\n"
-        "2. Нажмите **«🚀 ПОЛУЧИТЬ НАСТРОЙКИ»** в этом боте.\n"
-        "3. Скопируйте текст из присланного файла.\n"
-        "4. В приложении Hiddify нажмите значок `+` (или `Новый профиль`).\n"
-        "5. Выберите пункт **«Из буфера»**.\n"
-        "6. Нажмите большую кнопку в центре экрана.\n\n"
-        f"_{random.choice(TIPS)}_"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🤖 Скачать для Android", url="https://play.google.com/store/apps/details?id=app.hiddify.com")],
-        [InlineKeyboardButton(text="🍎 Скачать для iPhone", url="https://apps.apple.com/us/app/hiddify-next/id6473777529")]
-    ])
-    await message.answer(help_text, reply_markup=kb, parse_mode="Markdown")
-
-@dp.message(F.text == "⚡ Скорость")
-async def check_speed(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Проверить скорость (Fast.com)", url="https://fast.com/ru/")]
-    ])
-    await message.answer("📏 Нажмите для проверки скорости после подключения:", reply_markup=kb)
-
-@dp.message(F.text == "📊 Статус системы")
-async def about_bot(message: types.Message):
+@dp.message(F.text == "📊 Статус и Пинг")
+async def status_check(message: types.Message):
+    ping_status = await check_link_latency()
     status_text = (
-        f"🖥 **СТАТУС СЕРВЕРА**\n\n"
-        f"✅ Бот работает стабильно\n"
-        f"📅 Обновлено: `{last_update_time}` МСК\n\n"
-        f"_{random.choice(TIPS)}_"
+        f"🖥 **МОНИТОРИНГ СЕТИ**\n\n"
+        f"🔗 **Доступность узла:** {ping_status}\n"
+        f"📅 **Обновление базы:** `{last_update_time}`\n\n"
+        f"💡 _Примечание: Этот пинг показывает связь бота с сервером. Ваш личный пинг проверяйте в приложении Hiddify._"
     )
     await message.answer(status_text, parse_mode="Markdown")
 
 @dp.message(F.text == "🚀 ПОЛУЧИТЬ НАСТРОЙКИ")
-async def get_file(message: types.Message):
+async def send_proxies(message: types.Message):
     save_user(message.from_user.id)
-    await bot.send_chat_action(message.chat.id, "upload_document") # Показывает "отправка файла"
-    proxies = await get_proxies()
-    if proxies:
-        file_data = proxies.encode('utf-8')
-        caption = (
-            f"✅ **Ваш файл настроек готов!**\n\n"
-            f"Скопируйте всё содержимое и вставьте в Hiddify.\n"
-            f"🕒 Актуально на: {last_update_time}"
-        )
-        await bot.send_document(
-            message.chat.id, 
-            BufferedInputFile(file_data, filename="proxies.txt"), 
-            caption=caption,
-            parse_mode="Markdown"
-        )
-    else:
-        await message.answer("❌ Ошибка связи с GitHub. Попробуйте снова.")
+    await bot.send_chat_action(message.chat.id, "upload_document")
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(PROXY_URL) as resp:
+            if resp.status == 200:
+                content = await resp.text()
+                # Считаем количество серверов в файле
+                count = len(content.strip().split('\n'))
+                ping_info = await check_link_latency()
+                
+                caption = (
+                    f"✅ **Настройки получены!**\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🌍 Найдено серверов: **{count}**\n"
+                    f"📡 Пинг (серверный): {ping_info}\n"
+                    f"🕒 Актуально на: {last_update_time}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"👇 Скопируйте текст из файла ниже:"
+                )
+                
+                file_data = content.encode('utf-8')
+                await bot.send_document(
+                    message.chat.id, 
+                    BufferedInputFile(file_data, filename="proxies.txt"), 
+                    caption=caption,
+                    parse_mode="Markdown"
+                )
 
-# --- МОНИТОРИНГ ---
+@dp.message(Command("broadcast"))
+async def broadcast(message: types.Message):
+    if message.from_user.id != USER_ID: return
+    text = message.text.replace("/broadcast", "").strip()
+    if not text: return await message.answer("Введите текст.")
+    for uid in get_all_users():
+        try: await bot.send_message(uid, f"📢 **СООБЩЕНИЕ:**\n\n{text}"); await asyncio.sleep(0.1)
+        except: pass
+    await message.answer("✅ Рассылка завершена.")
+
+@dp.message(F.text == "📖 Инструкция")
+async def instruction(message: types.Message):
+    text = (
+        "📖 **КАК ПРОВЕРИТЬ ПИНГ В ПРИЛОЖЕНИИ:**\n\n"
+        "1. Зайдите в Hiddify.\n"
+        "2. Нажмите на иконку молнии ⚡ в углу экрана.\n"
+        "3. Приложение проверит **ваш реальный пинг** до каждого сервера.\n"
+        "4. Выбирайте тот, где цифра меньше (например, 60ms лучше, чем 150ms)."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 Android", url="https://play.google.com/store/apps/details?id=app.hiddify.com")],
+        [InlineKeyboardButton(text="🍎 iPhone", url="https://apps.apple.com/us/app/hiddify-next/id6473777529")]
+    ])
+    await message.answer(text, reply_markup=kb)
+
+# --- LOOP & WEB ---
 async def check_proxies_loop():
     global last_hash, last_update_time
     while True:
-        content = await get_proxies()
-        if content:
-            current_hash = hashlib.md5(content.encode()).hexdigest()
-            if current_hash != last_hash:
-                now = datetime.now(pytz.timezone('Europe/Moscow'))
-                last_update_time = now.strftime("%H:%M:%S (%d.%m.%Y)")
-                if last_hash != "start_node":
-                    msg = "🔔 **ОБНОВЛЕНИЕ КОНФИГУРАЦИИ!**\n\nПоявились новые настройки. Заберите их кнопкой «🚀 ПОЛУЧИТЬ НАСТРОЙКИ»."
-                    for uid in get_all_users():
-                        try: await bot.send_message(uid, msg, parse_mode="Markdown"); await asyncio.sleep(0.1)
-                        except: pass
-                last_hash = current_hash
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(PROXY_URL) as resp:
+                    if resp.status == 200:
+                        content = await resp.text()
+                        curr_hash = hashlib.md5(content.encode()).hexdigest()
+                        if curr_hash != last_hash:
+                            now = datetime.now(pytz.timezone('Europe/Moscow'))
+                            last_update_time = now.strftime("%H:%M:%S (%d.%m.%Y)")
+                            if last_hash != "start_node":
+                                for uid in get_all_users():
+                                    try: await bot.send_message(uid, "🔔 **Настройки обновились!** Заберите новый файл кнопкой в меню."); await asyncio.sleep(0.1)
+                                    except: pass
+                            last_hash = curr_hash
+            except: pass
         await asyncio.sleep(CHECK_INTERVAL)
 
-async def handle(request): return web.Response(text="Bot is running")
+async def handle(request): return web.Response(text="Online")
 
 async def main():
     app = web.Application()
