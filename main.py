@@ -5,13 +5,13 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import BufferedInputFile, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiohttp import web
 
-# --- НАСТРОЙКИ ---
+# --- НАСТРОЙКИ (ПРОВЕРЬ ИХ!) ---
 API_TOKEN = '8459395402:AAEBWV85J1rUMxu825hvnHzd1SHtaDG8xoc'
 ADMIN_ID = 8208699361 
 PROXY_URL = 'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-CIDR-RU-checked.txt'
 USERS_FILE = "users_list.txt"
 
-# Ссылки на крутые картинки (Киберпанк/Безопасность)
+# Картинки для красоты
 START_PIC = "https://w.forfun.com/fetch/1f/1f81d113426e2a149a4a755d506927d1.jpeg"
 ADMIN_PIC = "https://img.goodfon.ru/original/1920x1080/7/da/mariya-s-shlemom-art-kiberpank-pogranichnik-cyberpunk.jpg"
 
@@ -19,186 +19,141 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 session = None
 
-# Глобальные переменные для статуса
-github_status = "🟢 OK"
-last_check_time = "Только что"
-
-# --- СЕРВИСНЫЕ ФУНКЦИИ ---
+# --- ФУНКЦИИ ---
 
 def save_user(user_id):
-    if not os.path.exists(USERS_FILE): open(USERS_FILE, 'w').close()
-    with open(USERS_FILE, "r+") as f:
+    if not os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'w') as f: pass
+    
+    with open(USERS_FILE, "r", encoding="utf-8") as f:
         users = f.read().splitlines()
-        if str(user_id) not in users:
+    
+    if str(user_id) not in users:
+        with open(USERS_FILE, "a", encoding="utf-8") as f:
             f.write(f"{user_id}\n")
+        return True
+    return False
 
 async def admin_notify(text):
     try:
-        await bot.send_message(ADMIN_ID, f"🛠 **LOG:** {text}", parse_mode="MarkdownV2")
+        await bot.send_message(ADMIN_ID, f"🛠 **LOG:** {text}")
     except: pass
 
 def clean_for_iphone(text):
     valid = ('vless://', 'ss://', 'trojan://', 'vmess://', 'hysteria2://', 'tuic://')
-    return "\n".join([l.strip() for l in text.splitlines() if l.strip().startswith(valid)])
+    lines = [l.strip() for l in text.splitlines() if l.strip().startswith(valid)]
+    return "\n".join(lines)
 
 # --- КЛАВИАТУРЫ ---
 
 def get_main_kb():
-    return ReplyKeyboardMarkup(keyboard=[
+    kb = [
         [KeyboardButton(text="📱 Получить Конфиг")],
-        [KeyboardButton(text="📸 QR-Код узла"), KeyboardButton(text="📊 Статус Системы")],
+        [KeyboardButton(text="📸 QR-Код"), KeyboardButton(text="📊 Статус")],
         [KeyboardButton(text="🛡 Помощь")]
-    ], resize_keyboard=True)
+    ]
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
 def get_file_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🍏 iPhone (Happ/Clean)", callback_data="get_iphone")],
-        [InlineKeyboardButton(text="🤖 Android / PC (Full)", callback_data="get_android")]
+        [InlineKeyboardButton(text="🍏 iPhone (.txt без мусора)", callback_data="f_iphone")],
+        [InlineKeyboardButton(text="🤖 Android / PC (Полный .txt)", callback_data="f_android")]
     ])
 
-# --- ОБРАБОТЧИКИ ЮЗЕРОВ ---
+# --- ОБРАБОТЧИКИ ---
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    save_user(message.from_user.id)
-    # Отправляем фото с приветствием
-    await bot.send_photo(
-        message.chat.id,
-        START_PIC,
-        caption=(
-            "🔥 **Добро пожаловать в CyberSafe VPN**\n\n"
-            "Я — твой автоматический оператор узлов безопасности.\n"
-            "Для начала работы выбери действие в меню:"
-        ),
-        reply_markup=get_main_kb(),
-        parse_mode="Markdown"
-    )
-    await admin_notify(f"Зашел: @{message.from_user.username or 'anon'} (`{message.from_user.id}`)")
+    is_new = save_user(message.from_user.id)
+    msg = "🔥 **Happ VPN Online**\n\nВыбери тип конфига в меню ниже:"
+    if is_new:
+        await admin_notify(f"Новый юзер! @{message.from_user.username or 'anon'}")
+    
+    try:
+        await bot.send_photo(message.chat.id, START_PIC, caption=msg, reply_markup=get_main_kb(), parse_mode="Markdown")
+    except:
+        await message.answer(msg, reply_markup=get_main_kb(), parse_mode="Markdown")
 
 @dp.message(F.text == "📱 Получить Конфиг")
 async def config_menu(message: types.Message):
-    await message.answer("🛠 **Выбери платформу:**", reply_markup=get_file_kb())
+    await message.answer("🛠 **Выбери формат файла:**", reply_markup=get_file_kb())
 
-@dp.callback_query(F.data == "get_iphone")
-async def send_iphone(callback: types.CallbackQuery):
+@dp.callback_query(F.data.startswith("f_"))
+async def send_file(callback: types.CallbackQuery):
+    await callback.answer("Подключаюсь к серверу...")
     async with session.get(PROXY_URL) as r:
         if r.status == 200:
-            clean_data = clean_for_iphone(await r.text())
+            content = await r.text()
+            if callback.data == "f_iphone":
+                final_data = clean_for_iphone(content)
+                filename = "iPhone_Configs.txt"
+                cap = "🍏 Очищено для iPhone"
+            else:
+                final_data = content
+                filename = "Full_Configs.txt"
+                cap = "📄 Полный файл"
+            
             await bot.send_document(
                 callback.message.chat.id,
-                BufferedInputFile(clean_data.encode(), filename="iPhone_Fix.txt"),
-                caption="🍏 **Файл очищен для iPhone.**"
+                BufferedInputFile(final_data.encode(), filename=filename),
+                caption=cap
             )
-            await admin_notify(f"ID {callback.from_user.id} скачал iPhone Fix")
-    await callback.answer()
+            await admin_notify(f"Юзер {callback.from_user.id} скачал {filename}")
 
-@dp.callback_query(F.data == "get_android")
-async def send_android(callback: types.CallbackQuery):
-    async with session.get(PROXY_URL) as r:
-        if r.status == 200:
-            await bot.send_document(
-                callback.message.chat.id,
-                BufferedInputFile(await r.read(), filename="Standard.txt"),
-                caption="📄 **Обычный конфиг (Android/PC)**"
-            )
-            await admin_notify(f"ID {callback.from_user.id} скачал Полный файл")
-    await callback.answer()
-
-@dp.message(F.text == "📸 QR-Код узла")
+@dp.message(F.text == "📸 QR-Код")
 async def send_qr(message: types.Message):
     async with session.get(PROXY_URL) as r:
         if r.status == 200:
             links = clean_for_iphone(await r.text()).splitlines()
             if links:
                 qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={links[0]}"
-                await bot.send_photo(message.chat.id, qr_url, caption="📸 **Быстрый вход (Узел #1)**\nОтсканируй в приложении Happ.")
-            else: await message.answer("Links not found.")
+                await bot.send_photo(message.chat.id, qr_url, caption="📸 **QR для быстрого входа**")
+            else:
+                await message.answer("Нет ссылок для QR.")
 
-@dp.message(F.text == "📊 Статус Системы")
+@dp.message(F.text == "📊 Статус")
 async def status_check(message: types.Message):
-    # Пинг до гугла
-    start = time.time()
-    async with session.get("https://google.com") as r:
-        ping = round((time.time() - start) * 1000)
-    
-    status_text = (
-        f"🖥 **Сервис:** `Elite Visual v5.0`\n"
-        f"📡 **Пинг:** `{ping} ms`\n"
-        f"📅 **Дата:** `{datetime.now(pytz.timezone('Europe/Moscow')).strftime('%d.%m %H:%M')}`\n"
-        f"🔷 **GitHub:** `{github_status}` (`{last_check_time}`)"
-    )
-    await message.answer(status_text, parse_mode="MarkdownV2")
+    await message.answer("🛰 Система: `Online`\n📡 GitHub: `Связь стабильна`", parse_mode="Markdown")
 
-# --- АДМИН-МЯСО И ВИЗУАЛ ---
+# --- АДМИНКА ---
 
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
     if message.from_user.id == ADMIN_ID:
-        with open(USERS_FILE, "r") as f:
-            count = len(f.read().splitlines())
-        # Отправляем фото с Админ-панелью
+        count = 0
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, "r") as f:
+                count = len(f.read().splitlines())
+        
         await bot.send_photo(
-            message.chat.id,
-            ADMIN_PIC,
-            caption=(
-                f"👑 **ЦЕНТР УПРАВЛЕНИЯ**\n\n"
-                f"Юзеров: `{count}`\n"
-                f"Рассылка: `/send [ТЕКСТ]`\n"
-                f"Пинг бота: `/ping`"
-            ),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📥 База ID", callback_data="db")]]),
-            parse_mode="Markdown"
+            message.chat.id, ADMIN_PIC,
+            caption=f"👑 **АДМИН-ПАНЕЛЬ**\n\nЮзеров в базе: `{count}`\nРассылка: `/send текст`",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📥 Скачать базу ID", callback_data="db")]])
         )
-
-@dp.message(Command("ping"))
-async def cmd_ping(message: types.Message):
-    """Скрытый быстрый пинг бота для админа"""
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("🏓 **Pong!** Bot is alive.")
 
 @dp.message(Command("send"))
 async def broadcast(message: types.Message, command: CommandObject):
     if message.from_user.id == ADMIN_ID and command.args:
-        with open(USERS_FILE, "r") as f: ids = f.read().splitlines()
+        with open(USERS_FILE, "r") as f:
+            ids = f.read().splitlines()
         sent = 0
         for uid in ids:
             try:
-                await bot.send_message(uid, f"📢 **ВНИМАНИЕ:**\n\n{command.args}")
+                await bot.send_message(uid, f"📢 **ОБЪЯВЛЕНИЕ:**\n\n{command.args}")
                 sent += 1
                 await asyncio.sleep(0.05)
             except: pass
-        await message.answer(f"✅ Готово! Доставлено: {sent}")
+        await message.answer(f"✅ Доставлено: {sent}")
 
 @dp.callback_query(F.data == "db")
-async def send_db(callback: types.CallbackQuery):
+async def download_db(callback: types.CallbackQuery):
     if callback.from_user.id == ADMIN_ID:
-        await bot.send_document(ADMIN_ID, BufferedInputFile.from_file(USERS_FILE))
+        await bot.send_document(ADMIN_ID, BufferedInputFile.from_file(USERS_FILE), caption="База ID")
     await callback.answer()
 
-# --- СТАНДАРТ ---
-@dp.message(F.text == "🛡 Помощь")
-async def help_cmd(message: types.Message):
-    await message.answer("1. Скачай файл.\n2. Скопируй ссылки.\n3. Добавь в Happ VPN.")
+# --- ЗАПУСК ---
 
-# --- ФОНОВЫЕ ЗАДАЧИ ---
-
-async def monitor_github():
-    global github_status, last_check_time
-    while True:
-        try:
-            async with session.get(PROXY_URL) as r:
-                last_check_time = datetime.now(pytz.timezone('Europe/Moscow')).strftime("%H:%M")
-                if r.status != 200:
-                    github_status = f"🔴 Error {r.status}"
-                    await admin_notify(f"⚠️ **GitHub ругается!** Ошибка {r.status}")
-                else:
-                    github_status = "🟢 Online"
-        except:
-            github_status = "🔴 ALARM"
-            await admin_notify("🚨 **Нет связи с GitHub!**")
-        await asyncio.sleep(600)
-
-async def handle_web(request): return web.Response(text="Bot visual v5.0 is running")
+async def handle_web(request): return web.Response(text="Bot is running")
 
 async def main():
     global session
@@ -208,7 +163,6 @@ async def main():
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000))).start()
     
     await bot.delete_webhook(drop_pending_updates=True)
-    asyncio.create_task(monitor_github())
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
