@@ -20,7 +20,7 @@ from aiohttp import web
 API_TOKEN = '8459395402:AAEBWV85J1rUMxu825hvnHzd1SHtaDG8xoc'
 ADMIN_ID = 8208699361
 # Ссылка на файл с ключами (VLESS/Reality)
-PROXY_URL = 'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt'
+PROXY_URL = 'https://github.com/igareck/vpn-configs-for-russia/blob/main/WHITE-CIDR-RU-checked.txt'
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
